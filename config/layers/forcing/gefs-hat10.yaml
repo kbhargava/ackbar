@@ -1,0 +1,52 @@
+# GEFS control, one file per day: HAT10's deterministic atmosphere.
+#
+# `forcing/gefs` beside this reads one `mem000.nc` for the whole experiment,
+# which is the shape `tools/forcing-gefs.py` writes: it fetches a span of GEFS
+# grib and concatenates it per member. HAT10 does not read that archive. Its
+# atmosphere is soca-science's existing GEFS control, already decoded to netCDF
+# and already filed one file per day, which
+# `SOCA-paper/scripts/stage_gefs_forcing.py` normalizes in place rather than
+# refetching several hundred gigabytes of grib to rebuild something that exists.
+#
+# So the one difference from `forcing/gefs` is that the path dates itself:
+#
+#     $(forcing_archive)/gefs/{{current_cycle:%Y%m%d}}.nc
+#
+# `{{...}}` is the job-time pass, resolved per cycle by
+# `ackbar.config.jobtime` when `mom6sis2.member_inputs` renders `ensemble.inputs`
+# just before the forecast stages `INPUT/`. Datetime symbols take a strftime
+# spec, so this is an ordinary use of the mechanism rather than a trick;
+# `forcing/era5` uses the same pass for `{{member_dir}}`.
+#
+# **Each file spans 12Z to 12Z**, three-hourly, with the radiation and
+# precipitation padded a little either side. That is exactly one cycle's
+# forecast, which is why this experiment cycles at 12Z rather than 00Z: at 00Z
+# every forecast would straddle two files and MOM6 would need both staged under
+# one name. The observation bins agree independently -- a P1D bin is 00Z to 24Z,
+# so a 24 h window centred on 12Z is exactly one obs day.
+#
+# **A missing day is a failed cycle, not a gap that heals.** There is no
+# fallback to the domain's shared copy: `member_inputs` raises if the path does
+# not resolve, on purpose, because falling back would be a forecast quietly
+# driven by the wrong weather. The archive was checked contiguous over
+# 2021-03-31 .. 2021-11-01, which is the cold start through the last DA cycle's
+# forecast.
+#
+# The scalars are the product's own 2 m values against a data table declaring
+# `z_bot = 10.0`, and the archive says so: `scalar_reference_height = 2.0`. See
+# the header of `scripts/stage_gefs_forcing.py` for why that is a stated choice
+# rather than an oversight, and what it costs.
+
+inherit:
+  - forcing/common
+
+vars:
+  # Keyed by what the files are for, not by which domain runs them, which is
+  # `forcing/common`'s convention. There is no HAT10 truth run -- this is an
+  # OSE against real observations, not an OSSE -- so there is one purpose and
+  # no fraternal twin to keep apart from it.
+  forcing_purpose: hat10_exp
+
+ensemble:
+  inputs:
+    atm.nc: $(forcing_archive)/gefs/{{current_cycle:%Y%m%d}}.nc

@@ -1,0 +1,84 @@
+! What ACKBAR changes about the imported HAT10 configuration. The case text
+! itself is MOM_input beside this, imported verbatim from soca-science's
+! config/model_config/mom6sis2/hat10/363x203x75.
+!
+! HAT10 is 363 x 203 x 75 over the tropical/subtropical North Atlantic, with
+! three open boundaries. NIGLOBAL, NJGLOBAL and NK are already correct in the
+! imported MOM_input and are deliberately not restated here: unlike the Gulf
+! family this domain has no shared base to differ from, so there is nothing for
+! a resolution override to say.
+
+! --- the initial condition ---------------------------------------------------
+!
+! The imported case initializes from the WOA13 monthly climatology, which is a
+! climatology: it has no 2021 mesoscale in it at all, and the Loop Current, the
+! North Brazil Current rings and the Gulf Stream front would all start in the
+! climatological mean position. This experiment initializes from GLORYS12V1
+! instead, a 1/12 degree reanalysis of the day actually being simulated, which
+! is the most valuable thing in the initial condition.
+!
+! `tools/fetch-glorys.py ic` writes both fields into one `ic.nc` with GLORYS's
+! `thetao` and `so` renamed to `temp` and `salt`, so the single-file form is
+! what is used and the two separate WOA paths are cleared. Clearing them is not
+! optional: MOM6 reads TEMP_Z_INIT_FILE when it is set, so leaving it would
+! silently keep the climatology.
+! **All three file keys, and not just TEMP_SALT_Z_INIT_FILE.** The imported case
+! sets the two single-field paths to the WOA files, so they are not at their
+! defaults and do not fall back to the combined one. Setting the combined key
+! and blanking the other two makes MOM6 look for the empty string:
+!     FATAL: error finding variable temp in file INPUT/ in hinterp_extrap
+! Pointing all three at `ic.nc` is what actually reads it.
+#override TEMP_SALT_Z_INIT_FILE = "ic.nc"
+#override TEMP_Z_INIT_FILE = "ic.nc"
+#override SALT_Z_INIT_FILE = "ic.nc"
+! GLORYS's `thetao` and `so`, renamed by the fetcher. The imported case names
+! WOA's `ptemp_an` and `s_an`.
+#override Z_INIT_FILE_PTEMP_VAR = "temp"
+#override Z_INIT_FILE_SALT_VAR = "salt"
+
+! --- the open boundary -------------------------------------------------------
+!
+! The imported case reads nine files, three fields by three segments, which are
+! a twelve record monthly climatology nominally stamped 2019. `fetch-glorys.py
+! obc` writes one `obc.nc` holding every field for every segment, suffixed by
+! the segment number, on a daily axis covering the experiment. So the three
+! DATA lines are rewritten onto it.
+!
+! Same product as the initial condition on purpose. An interior and a boundary
+! drawn from different analyses disagree about sea surface height by a constant
+! offset, and under FLATHER that offset is a barotropic pressure gradient the
+! model will accelerate a current down.
+!
+! Segment numbering is the imported case's and is not changed: 001 is J=N (the
+! northern edge), 002 is J=0 (southern), 003 is I=N (eastern).
+!
+! **The field names here carry no segment suffix, and must not.** `obc_grid.py`
+! writes `u_segment_001`, `zeta_segment_002` and so on (`write_obc`, the
+! `f"{short}_segment_{name}"` variables), and MOM6 appends the `_segment_XXX`
+! itself when it resolves one of these entries. Spelling the suffix here makes
+! it look for `u_segment_001_segment_001`. This is the same spelling the Gulf
+! domains use against the same writer.
+#override OBC_SEGMENT_001_DATA = "U=file:obc.nc(u),V=file:obc.nc(v),SSH=file:obc.nc(zeta),TEMP=file:obc.nc(temp),SALT=file:obc.nc(salt)"
+#override OBC_SEGMENT_002_DATA = "U=file:obc.nc(u),V=file:obc.nc(v),SSH=file:obc.nc(zeta),TEMP=file:obc.nc(temp),SALT=file:obc.nc(salt)"
+#override OBC_SEGMENT_003_DATA = "U=file:obc.nc(u),V=file:obc.nc(v),SSH=file:obc.nc(zeta),TEMP=file:obc.nc(temp),SALT=file:obc.nc(salt)"
+
+! `obc_grid.py` writes the segment arrays in brushcutter layout, which is what
+! the Gulf domains read them with. The imported case already sets it; restated
+! here because it is a property of the writer rather than of the domain.
+BRUSHCUTTER_MODE = True
+
+! --- ackbar ------------------------------------------------------------------
+
+! An intermediate restart is time-stamped instead of overwriting MOM.res.nc.
+! Bit 0, the default, rewrites one file per interval and ends with the same
+! single state it started with; bit 1 is the time-stamped write, which is what
+! a sub-window state is. Inert for a forecast given no interval, which is every
+! 3D experiment here. See MOM_STAMP in ackbar/mom6sis2.py.
+#override RESTART_CONTROL = 2
+
+! Not required by the coupled forecast, which is driven by the data table, but
+! read by SOCA's MOM6 solo driver during geometry construction. The imported
+! case leaves both at their defaults and the solo driver then looks for forcing
+! that is not there.
+BUOY_CONFIG = 'zero'
+WIND_CONFIG = 'zero'

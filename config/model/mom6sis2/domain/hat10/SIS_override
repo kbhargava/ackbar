@@ -1,0 +1,8 @@
+! The grid, which is all HAT10's SIS_input needs to say that the imported
+! SIS_input does not already. Everything else is in SIS_input beside this.
+!
+! SIS2 has no ENABLE_BUGS_BY_DEFAULT. Re-check after a bundle bump with:
+!     grep -E '_BUG[A-Z_]* = True' SIS_parameter_doc.all
+
+NIGLOBAL = 363
+NJGLOBAL = 203

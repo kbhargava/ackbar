@@ -1,0 +1,46 @@
+! Read by SOCA applications only, after MOM_override. The forecast never sees
+! this file, and that asymmetry is the whole point of it existing separately.
+!
+! THIS IS A WORKAROUND, copied from the Gulf domains for the same reason and
+! with the same expiry: delete it when SOCA's MOM6 is rebuilt with symmetric
+! memory, and delete the file rather than emptying it.
+!
+! SOCA links its own MOM6 from NOAA-EMC and that copy is built without
+! SYMMETRIC_MEMORY_. MOM6 refuses to configure Flather open boundaries in a
+! non-symmetric build:
+!
+!     FATAL: MOM_open_boundary, open_boundary_config:
+!            Symmetric memory must be used when using Flather OBCs.
+!
+! which aborts inside `soca_geom_init`, so on a regional domain with Flather
+! boundaries *every* SOCA application dies during geometry construction, before
+! it has read an observation or a background. HAT10 has three Flather segments,
+! so without this soca_gridgen.x, soca_var.x and soca_hofx3d.x all fail before
+! they start. The forecast model is built symmetric and runs the same
+! boundaries without complaint, so this is the two builds disagreeing and not
+! the configuration being wrong.
+!
+! Turning the segments off for SOCA is safe for what SOCA uses the geometry
+! for: longitude, latitude, depth, layer thickness and the land mask, none of
+! which depend on how the boundary is forced. What is lost is MOM6's knowledge
+! that those columns are boundary columns, which matters for masking the
+! analysis at the grid edge and has to be handled explicitly regardless.
+
+#override OBC_NUMBER_OF_SEGMENTS = 0
+
+! --- note: the initial condition is NOT re-pointed here --------------------
+!
+! An earlier attempt sent SOCA back to the WOA climatology so that
+! `tools/soca-gridspec.sh` -- a full MOM6 initialization, and the first offline
+! stage a new domain needs -- would not have to wait on a multi-hour GLORYS
+! download. MOM6 refuses it:
+!
+!     FATAL: MOM_file_parser : TEMP_SALT_Z_INIT_FILE found with multiple
+!            inconsistent overrides. Line A: '"ic.nc"' Line B:
+!            'TEMP_SALT_Z_INIT_FILE = ""' in file MOM_override.soca
+!
+! Two `#override` lines for one parameter with different values are an error
+! however they are split across files, so a SOCA-only value for a key
+! MOM_override already sets is not expressible. The gridspec therefore runs
+! after `fetch-glorys.py ic`, not before it. The values are still discarded --
+! SOCA wants the geometry -- but the file has to be readable.

@@ -1,0 +1,110 @@
+# HAT10: the tropical and subtropical North Atlantic at 1/4 degree.
+#
+# 363 x 203 x 75, three open boundaries (north, south and east; the west is
+# closed against the Americas). Imported from soca-science's
+# `config/model_config/mom6sis2/hat10/363x203x75`, which is where every Gulf of
+# Mexico configuration in this repository also came from.
+#
+# Flat rather than nested under a family, like `om_1deg` and unlike the four
+# Gulf resolutions: there is one HAT10 and nothing to share a base with. If a
+# second resolution is ever imported, split this the way `domain/common/gom.yaml`
+# is split and not before, because the reason that file exists is four copies
+# that had already drifted apart.
+#
+# This is the paper's domain: the Atlantic hurricane basin over the 2021 season,
+# which is what the observation archive covers.
+
+vars:
+  # The case's text, in this repository, because MOM6-examples ships no Atlantic
+  # configuration and this one is therefore ours. No `common` split for the
+  # reason in the header.
+  mom6_base_dir: $(ackbar_root)/config/model/mom6sis2/domain/hat10
+
+  # The data half, out of the repository: grid, bathymetry, initial condition,
+  # open boundary. Symlinks into the soca-shared tree, staged by
+  # SOCA-paper/scripts/stage_hat10_static.sh.
+  mom6_input_dir: $(static_root)/domain/hat10/INPUT
+
+  # What ACKBAR changes about the imported case. The same directory as the base
+  # here, since there is only one resolution to override for.
+  mom6_override_dir: $(ackbar_root)/config/model/mom6sis2/domain/hat10
+
+  # Where this domain's offline stages land: soca_gridspec.nc, the diffusion
+  # calibration, sst_bgerr.nc. A var as well as a `domain.static` key, because
+  # the da layer names files under it and cannot know which domain it is being
+  # merged with.
+  domain_static: $(static_root)/static/hat10
+
+  # The coupler timestep. The imported case runs the ocean at DT = 900 s; the
+  # coupling is hourly, which is what soca-science drove this domain at and what
+  # the GEFS forcing's three-hourly cadence comfortably resolves.
+  mom6_dt_cpld: 3600
+
+  # **This has to equal NK in `config/model/mom6sis2/domain/hat10/MOM_input`,
+  # which is 75.** It is the one copy of the level count outside that file and
+  # it does not fail loudly when it disagrees: SABER reads a calibration with
+  # more levels than it was told to expect and spins, at full CPU on every rank,
+  # writing nothing. See docs/background-error.md.
+  diffusion_levels: 75
+
+domain:
+  name: hat10
+  static: $(domain_static)
+
+  # `staggered_faces` is deliberately absent, so the default `west/south` shift
+  # is applied. That is right for a bounded regional domain, whose outermost row
+  # and column are masked land. `east/north` is for global grids and combining
+  # it with mom6sis2 is a hard validate refusal.
+
+  resources:
+    # Bookkeeping: python, shell, a few file operations. Named `default` so that
+    # adding a task does not silently submit it with sbatch's own defaults,
+    # which on a real machine is one core.
+    default:
+      ntasks: 1
+      time: '00:10:00'
+      mem: 4G
+
+    # 40 ranks, half a hercules node. The domain is 363 x 203 x 75, about 5.5M
+    # cells, roughly eleven times gom_25km's and twice gom_4km's. The Gulf
+    # numbers are rancor's 8-core box and are not a property of any domain.
+    # These are a starting point sized by cell count, to be replaced by what
+    # `ackbar harvest` measures over the first few cycles rather than by
+    # guessing further.
+    forecast:
+      ntasks: 40
+      time: '00:40:00'
+      mem: 32G
+    forecast.ext:
+      # The same model over a five day integration.
+      ntasks: 40
+      time: '03:00:00'
+      mem: 32G
+    da:
+      ntasks: 40
+      time: '01:00:00'
+      mem: 64G
+    da.ens:
+      ntasks: 40
+      time: '01:00:00'
+      mem: 64G
+    hofx:
+      ntasks: 40
+      time: '00:30:00'
+      mem: 32G
+    b.corr_vt:
+      ntasks: 40
+      time: '00:20:00'
+      mem: 32G
+    recenter:
+      ntasks: 40
+      time: '00:20:00'
+      mem: 32G
+    writeback:
+      ntasks: 1
+      time: '00:20:00'
+      mem: 32G
+    post.state:
+      ntasks: 1
+      time: '00:20:00'
+      mem: 16G
