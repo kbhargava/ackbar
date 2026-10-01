@@ -1,0 +1,47 @@
+# In situ salinity from the GDAS marine stream, the same casts `insitu_t` reads.
+#
+# **The body is `obs/common/profile`'s `profile_s`, unchanged, and that is
+# correct rather than lazy.** The operator question that forces `insitu_t` onto
+# its own body does not arise for salinity: a cast reports practical salinity
+# and the model's prognostic is practical salinity, so `VertInterp` is comparing
+# one quantity with itself and there is nothing to convert. SOCA's own test
+# configuration splits a cast exactly this way -- `InsituTemperature` for the
+# temperature observer, `VertInterp` for the salinity one -- and
+# `obs/common/insitu.yaml` says so from the other side.
+#
+# The bins are the same files `insitu_t` reads; the FNMOC stream carries both
+# variables and the archive stages it under both names, so which variable is
+# assimilated is decided by the observer's `simulated variables` and not by the
+# file. Reading one file from two observers is intended.
+#
+# **The inherited `Bounds Check` of 20 to 40 psu is doing real work here.** In
+# the staged 2021 bins `ObsValue/salinity` runs from 0.0 to 43.7, and the low
+# end is an unmasked missing value rather than an ocean: about 9,300 of 382,000
+# values in a mid-July bin sit below 20. It does also remove genuinely fresh
+# water -- this domain contains the Amazon and Orinoco plumes, which really do
+# reach the surface below 20 psu -- and that is accepted rather than overlooked.
+# A floor low enough to keep the plume would also admit the sentinels, and
+# separating them needs a `PreQC` filter keyed to what the stream's flags
+# actually mean, which has not been established. Revisit here, not by widening
+# the bound.
+
+inherit:
+  - obs/common/profile
+
+observations:
+- obs space:
+    name: insitu_s
+    # Where this platform's bins are in the archive. ACKBAR's own key, like
+    # `$required`: `stage.obs` joins the bins this cycle's window touches into
+    # the `obsdatain` file below, and JEDI is never shown either the archive or
+    # this key. See `src/ackbar/obsarchive.py`.
+    $archive: $(obs_dir)/insitu_s
+    obsdatain:
+      engine:
+        type: H5File
+        obsfile: $(obs_in_dir)/{{current_cycle:%Y%m%dT%H%M%SZ}}/insitu_s.nc4
+    obsdataout:
+      engine:
+        type: H5File
+        obsfile: $(obs_out_dir)/{{current_cycle:%Y%m%dT%H%M%SZ}}/$(experiment).insitu_s.{{window_begin:%Y%m%d%H}}.nc4
+  $inherit: profile_s

@@ -1,0 +1,36 @@
+# In situ temperature from the GDAS marine stream: floats, gliders, ships and
+# moorings, whatever reported a cast that day.
+#
+# **The body is `obs/common/insitu`, not `obs/common/profile`**, and that is the
+# whole reason this layer is not `argo_t` with a different name. These are real
+# casts reporting in situ temperature, so they go through `InsituTemperature`;
+# the profile body's `VertInterp` is for the OSSE archive's potential
+# temperature. `obs/common/insitu.yaml` states the case at length.
+#
+# One stream rather than one per instrument. The archive does not separate them
+# -- `insitu_t` and `insitu_s` are the same FNMOC file staged twice, filed by
+# which variable each observer reads out of it -- so a per-instrument split here
+# would be a fiction with nothing behind it. It also means this layer and
+# `insitu_s` read the *same bins*, which is intended and is how SOCA's own test
+# configuration files a cast: one file, two observers, one variable each.
+
+inherit:
+  - obs/common/insitu
+
+observations:
+- obs space:
+    name: insitu_t
+    # Where this platform's bins are in the archive. ACKBAR's own key, like
+    # `$required`: `stage.obs` joins the bins this cycle's window touches into
+    # the `obsdatain` file below, and JEDI is never shown either the archive or
+    # this key. See `src/ackbar/obsarchive.py`.
+    $archive: $(obs_dir)/insitu_t
+    obsdatain:
+      engine:
+        type: H5File
+        obsfile: $(obs_in_dir)/{{current_cycle:%Y%m%dT%H%M%SZ}}/insitu_t.nc4
+    obsdataout:
+      engine:
+        type: H5File
+        obsfile: $(obs_out_dir)/{{current_cycle:%Y%m%dT%H%M%SZ}}/$(experiment).insitu_t.{{window_begin:%Y%m%d%H}}.nc4
+  $inherit: insitu_t

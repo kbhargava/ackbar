@@ -1,0 +1,101 @@
+# What a *real* in situ temperature cast has in common. Not a platform: nothing
+# in here turns an observer on. `obs/insitu_t.yaml` inherits it.
+#
+# **This exists because `obs/common/profile.yaml` is for the OSSE and this is an
+# OSE.** The two differ in one thing that matters, and it is the operator.
+#
+# `obs/common/profile.yaml` simulates `waterPotentialTemperature` through
+# `VertInterp`, and that is right for the archive it was written for:
+# `tools/obs-archive-osse.py` samples the truth's `Temp`, which is MOM6's
+# prognostic and is *potential* temperature, so observation and model field are
+# the same quantity and the operator's whole job is the vertical remap.
+#
+# The HAT10 archive is real GDAS in situ, `ObsValue/waterTemperature` from
+# floats, gliders, ships and moorings, which report *in situ* temperature. Put
+# through `VertInterp` against a potential-temperature background, the departure
+# would be between two different quantities: the conversion is 0.1 to 0.15 K by
+# a thousand metres against the 0.05 K an error of that depth declares, so every
+# deep level of every cast would carry a systematic two to three sigma bias that
+# nothing in the workflow reports as one. The note in
+# `config/obs/obsop_name_map.yml` states this from the other side, and says the
+# fix for a real float is exactly this operator.
+#
+# `InsituTemperature` converts the background's potential temperature to in situ
+# before comparing, using the background salinity and the observation's own
+# depth. It is SOCA's own choice for this: `soca/test/testinput/3dvar.yml` pairs
+# an `InsituTemperature` obs space with `simulated variables:
+# [waterTemperature]` and exactly the two lines of operator config below.
+#
+# **Salinity is not here, and does not need to be.** A real cast's salinity is
+# already the same quantity as the model's, so `obs/common/profile.yaml`'s
+# `profile_s` body is correct unchanged and `obs/insitu_s.yaml` inherits that
+# one. SOCA's own test does the same: in situ temperature through
+# `InsituTemperature`, salinity through `VertInterp`. Splitting the pair across
+# two bodies files is the honest layout, since only one half is new.
+
+vars:
+  # The same multiple of the local Rossby radius `obs/common/profile.yaml` uses,
+  # and for the reason stated there: a cast is a point measurement, not an
+  # average over a footprint, and it is the only thing in the network that sees
+  # vertical structure at all.
+  insitu_localization_scale: 1.0
+
+observation bodies:
+
+  insitu_t:
+
+    # Horizontal only. `obs/common/profile.yaml`'s `profile_t` gives the reason
+    # at length: the geometry's vertical coordinate is a level index while a
+    # cast reports metres, so localizing in the vertical would read a 175 m
+    # observation as 175 levels away and delete the only subsurface information
+    # the network has.
+    $localization:
+    - localization method: Rossby
+      rossby mult: $(insitu_localization_scale)
+      min grid mult: 1.0
+
+    obs space:
+      simulated variables: [waterTemperature]
+      io pool:
+        max pool size: 1
+      obs perturbations seed: '{{seed}}'
+
+    # **Two lines, and deliberately no more.** No `observation alias file` and no
+    # vertical coordinate keys: unlike `VertInterp`, this operator does not take
+    # them. It asks for the `ocean_depth` GeoVaL itself and reads the cast's
+    # depth straight out of the file as `MetaData/depth`
+    # (`ufo_insitutemperature_mod.F90`, the `obsspace_get_db` calls), which is
+    # what the GDAS archive carries. Adding the `VertInterp` keys here would be
+    # config the operator ignores.
+    obs operator:
+      name: InsituTemperature
+
+    obs error:
+      covariance model: diagonal
+
+    obs filters:
+    - filter: Domain Check
+      where:
+      - variable: {name: GeoVaLs/sea_area_fraction}
+        minvalue: 0.9
+    # **Load bearing against real data in a way it was not against the OSSE.**
+    # The archive carries an unmasked missing value: `ObsValue/waterTemperature`
+    # runs down to -999.0 in the staged bins, and the upper tail reaches 39.5.
+    # The synthetic archive this range was chosen for held neither. Without this
+    # every cast with a gap would enter the minimization as a -999 K departure.
+    - filter: Bounds Check
+      minvalue: -2.0
+      maxvalue: 36.0
+    # **Not effectively off, unlike the OSSE bodies.** `obs/common/adt.yaml`
+    # argues for `threshold: 100.0` on the grounds that nothing synthetic holds
+    # a gross error to catch, so what a real check removes is signal. Real GDAS
+    # profiles do hold gross errors, and the argument does not carry over. 5
+    # sigma is what `soca/test/testinput/3dvar.yml` uses for this operator. It
+    # censors the free run and the analysis identically, which is what keeps the
+    # noDA-vs-3DVar comparison fair; see the header of `hat10-noda.yaml`.
+    - filter: Background Check
+      threshold: 5.0
+    - filter: Domain Check
+      where:
+      - variable: {name: ObsError/waterTemperature}
+        minvalue: 0.001

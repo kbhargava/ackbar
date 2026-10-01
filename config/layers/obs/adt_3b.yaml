@@ -1,0 +1,31 @@
+# Absolute dynamic topography from Sentinel-3B, along track.
+#
+# Flown by the HAT10 paper experiments. `adt_3a` beside
+# it is the sister satellite and the two are separate observers because they are
+# separate instruments with separate bins in the archive.
+#
+# The whole observer is the `adt` body in `obs/common/adt.yaml`, which this
+# layer inherits. What is here is this platform's identity: its name, and the
+# two paths that name follows into the archive and out to `obs_out/`. Anything
+# restated here would override the body.
+
+inherit:
+  - obs/common/adt
+
+observations:
+- obs space:
+    name: adt_3b
+    # Where this platform's bins are in the archive. ACKBAR's own key, like
+    # `$required`: `stage.obs` joins the bins this cycle's window touches into
+    # the `obsdatain` file below, and JEDI is never shown either the archive or
+    # this key. See `src/ackbar/obsarchive.py`.
+    $archive: $(obs_dir)/adt_3b
+    obsdatain:
+      engine:
+        type: H5File
+        obsfile: $(obs_in_dir)/{{current_cycle:%Y%m%dT%H%M%SZ}}/adt_3b.nc4
+    obsdataout:
+      engine:
+        type: H5File
+        obsfile: $(obs_out_dir)/{{current_cycle:%Y%m%dT%H%M%SZ}}/$(experiment).adt_3b.{{window_begin:%Y%m%d%H}}.nc4
+  $inherit: adt

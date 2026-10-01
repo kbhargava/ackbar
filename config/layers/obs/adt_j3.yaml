@@ -1,0 +1,32 @@
+# Absolute dynamic topography from Jason-3, along track.
+#
+# Flown by the HAT10 paper experiments. Distinct from `adt_j2`
+# beside it, which is the same body under the previous satellite: the 2021
+# archive carries Jason-3, so the layer is named for what is actually in it
+# rather than reusing a name that would file J3 bins under a J2 observer.
+#
+# The whole observer is the `adt` body in `obs/common/adt.yaml`, which this
+# layer inherits. What is here is this platform's identity: its name, and the
+# two paths that name follows into the archive and out to `obs_out/`. Anything
+# restated here would override the body.
+
+inherit:
+  - obs/common/adt
+
+observations:
+- obs space:
+    name: adt_j3
+    # Where this platform's bins are in the archive. ACKBAR's own key, like
+    # `$required`: `stage.obs` joins the bins this cycle's window touches into
+    # the `obsdatain` file below, and JEDI is never shown either the archive or
+    # this key. See `src/ackbar/obsarchive.py`.
+    $archive: $(obs_dir)/adt_j3
+    obsdatain:
+      engine:
+        type: H5File
+        obsfile: $(obs_in_dir)/{{current_cycle:%Y%m%dT%H%M%SZ}}/adt_j3.nc4
+    obsdataout:
+      engine:
+        type: H5File
+        obsfile: $(obs_out_dir)/{{current_cycle:%Y%m%dT%H%M%SZ}}/$(experiment).adt_j3.{{window_begin:%Y%m%d%H}}.nc4
+  $inherit: adt
