@@ -1,0 +1,57 @@
+# HAT10 3DVar over the 2021 hurricane season: the paper's assimilating arm.
+#
+# The matched pair to `hat10-noda.yaml`. Everything is identical except
+# `da/variational` in place of `da/none` -- the domain, the dates, the initial
+# condition, the forcing, the observer list and the observation archive -- so
+# the difference between the two O-B statistics is the assimilation and nothing
+# else. **The observer list has to be kept equal by hand**, and it is seven
+# entries long.
+#
+# What it should show is a background that fits the observations better than the
+# free run's does, by a margin that grows over the first few cycles and then
+# holds. If it does not, the order to diagnose in is: the increment's magnitude
+# (`solver.background error` standard deviations), then whether the minimization
+# converged (`ninner`), then a single-observation experiment (`tools/single-ob.py`)
+# to see what the covariance actually spreads. Not blind tuning toward a number.
+#
+# The static background error is `da/variational`'s and has not been calibrated
+# for this domain. That is a real limit on what the comparison can claim: that
+# assimilating these observations through this covariance beats not assimilating
+# them, not that this is the best 3DVar the Atlantic admits. Say so in the
+# paper rather than around it.
+inherit:
+  - domain/hat10
+  - model/mom6sis2
+  - da/variational
+  - forcing/gefs-hat10
+  - obs/adt_j3
+  - obs/adt_3a
+  - obs/adt_3b
+  - obs/adt_c2
+  - obs/adt_sa
+  - obs/insitu_t
+  - obs/insitu_s
+
+experiment:
+  name: hat10-3dvar
+  description: HAT10 3DVar over Jul-Oct 2021, assimilating GDAS ADT and in situ T/S
+
+cycle:
+  # Identical to `hat10-noda`, and it has to be: the comparison at each lead is
+  # a paired difference, so the launches and the valid times must match.
+  start: '2021-07-01T12:00:00Z'
+  length: PT24H
+  count: 123
+
+vars:
+  # The same archive `hat10-noda` reads, and it must stay the same: two arms
+  # scored against different observations are not a comparison.
+  obs_dir: $(static_root)/obs/gdas-marine-2021
+
+cleanup:
+  keep_cycles: 1
+
+model:
+  # The same promoted spinup restart `hat10-noda` starts from. Both arms leave
+  # the identical ocean, so cycle one's difference is one analysis.
+  initial_condition: $(static_root)/ic/hat10/spinup-2021/20210701T12

@@ -1,0 +1,65 @@
+# HAT10 free run over the 2021 hurricane season: the paper's control arm.
+#
+# This and `hat10-3dvar.yaml` are a matched pair, and the whole design is that
+# the only difference between them is the `da/` layer. The domain, the dates,
+# the initial condition, the forcing, the observer list and the observation
+# archive are identical, so the difference between the two O-B statistics is the
+# assimilation and nothing else. **The observer list has to be kept equal by
+# hand.** It is seven entries long and there is no mechanism that checks it.
+#
+# **A free run still lists every observer, and that is the point.** Nothing here
+# is assimilated -- `da/none` -- but each observer still runs its forward
+# operator, so the free run produces O-B departures against exactly the same
+# observations, through exactly the same operators, with exactly the same
+# quality control. Drop an observer here and it silently vanishes from the
+# comparison rather than failing. Keep the filters identical too: censoring the
+# free run harder than the analysis, or softer, is how a comparison flatters
+# one arm without anyone editing a number.
+inherit:
+  - domain/hat10
+  - model/mom6sis2
+  - da/none
+  - forcing/gefs-hat10
+  - obs/adt_j3
+  - obs/adt_3a
+  - obs/adt_3b
+  - obs/adt_c2
+  - obs/adt_sa
+  - obs/insitu_t
+  - obs/insitu_s
+
+experiment:
+  name: hat10-noda
+  description: HAT10 free run over Jul-Oct 2021, control for the 3DVar comparison
+
+cycle:
+  # The spinup's last restart, and the first day the observation archive covers
+  # a full window. A cycle at 12Z has a window of 00Z to 24Z that day, so this
+  # one needs the 2021-07-01 bin and no earlier one.
+  start: '2021-07-01T12:00:00Z'
+  length: PT24H
+  # 2021-07-01 through 2021-10-31 inclusive: 31 + 31 + 30 + 31. The last cycle
+  # starts 2021-10-31T12 and its forecast ends 2021-11-01T12, which is the last
+  # day of the GEFS archive and inside what `INPUT/obc.nc` covers.
+  #
+  # Identical in both arms, necessarily: a paired difference at each lead needs
+  # the same valid times everywhere.
+  count: 123
+
+vars:
+  # Real GDAS marine observations, binned P1D, 2021-06-30 through 2021-10-31.
+  # Both arms read this one directory. See
+  # `SOCA-paper/scripts/stage_obs_2021.py` for how it was built and
+  # `docs/model-data.md` for the archive's shape.
+  obs_dir: $(static_root)/obs/gdas-marine-2021
+
+cleanup:
+  keep_cycles: 1
+
+model:
+  # The spinup's final restart, promoted to the initial condition stage rather
+  # than named where it landed. `hat10-spinup/run/.../rst/mem000` is the same
+  # bytes and would work, and it lives under a directory `cleanup` is entitled
+  # to reap: an experiment that reads another experiment's run directory is one
+  # retention setting away from being unreproducible.
+  initial_condition: $(static_root)/ic/hat10/spinup-2021/20210701T12

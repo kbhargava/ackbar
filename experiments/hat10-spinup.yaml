@@ -1,0 +1,75 @@
+# HAT10's spinup: three months of free running before the paper's DA period.
+#
+# **A real spinup, unlike `osse25-spinup.yaml`.** That one is two days and says
+# in its own header that it is not a spinup: an OSSE wants the mesoscale left
+# exactly where GLORYS put it, because the displaced Loop Current *is* the error
+# the assimilation exists to remove, and integrating it away would replace
+# mesoscale error with model drift. This experiment is an OSE. Its observations
+# are real, its truth is the real ocean, and the error it is scored on includes
+# whatever the model does to a GLORYS state once it is no longer being held
+# there by NEMO's own assimilation. That adjustment has to happen *before* the
+# comparison starts, or the first weeks of both arms would be scoring the shock
+# of a 1/12 degree NEMO state landing on a 1/4 degree MOM6 grid rather than
+# scoring assimilation.
+#
+# Three months, 2021-04-01 to 2021-07-01. Long enough for the initialization
+# transient and the Z* coordinate to settle and for the model to find its own
+# balance; short enough that the mesoscale has not fully decorrelated from the
+# GLORYS state, which is what keeps the domain's eddy field realistic going into
+# a hurricane season. It ends the day the observation archive begins.
+#
+# **Where the state comes from.** `ic.nc` is z-level temperature and salinity,
+# and MOM6 builds its state from that during initialization; it only writes a
+# restart at the end of a run, so the first restart set for a new domain has to
+# be made by running the model once:
+#
+#     tools/coldstart-ic.sh hat10 2021-03-31T12 24 glorys-2021
+#
+# which writes `$ACKBAR_STATIC_ROOT/ic/hat10/glorys-2021/20210401T12`, the path
+# `model.initial_condition` names below.
+#
+# **12Z, and the hour is not free.** `coldstart-ic.sh` warns that the hour its
+# integration lands on is the hour every experiment built on the state cycles
+# on, forever. 12Z is forced twice over, by two constraints that agree:
+# the GEFS forcing files span 12Z to 12Z, so one file is exactly one cycle's
+# forecast and a 00Z cycle would straddle two of them; and a P1D observation bin
+# is 00Z to 24Z, so a 24 hour window centred on 12Z is exactly one obs day.
+# `config/layers/forcing/gefs-hat10.yaml` states the first at length.
+#
+# Nothing is assimilated here -- `da/none`, and no `obs/` layers at all. A free
+# run needs no observations, which is why this can be built and launched before
+# the observing system is finished.
+inherit:
+  - domain/hat10
+  - model/mom6sis2
+  - da/none
+  # The same atmosphere the experiments downstream read. A settling run exists
+  # to remove the imbalance in a state before an experiment inherits it, and one
+  # settled under a different atmosphere than the run that inherits it hands
+  # over a fresh imbalance in place of the one it removed.
+  - forcing/gefs-hat10
+
+experiment:
+  name: hat10-spinup
+  description: HAT10 free run, GLORYS 2021-03-31 settled to the start of the DA period
+
+cycle:
+  # The valid time of the cold start above: the asserted 2021-03-31T12 plus its
+  # 24 hours of integration.
+  start: '2021-04-01T12:00:00Z'
+  length: PT24H
+  # 2021-04-01 through 2021-06-30 inclusive: 30 + 31 + 30. The last cycle starts
+  # 2021-06-30T12 and ends 2021-07-01T12, which is where both DA experiments
+  # begin, so the count and their `cycle.start` are one statement written twice.
+  count: 91
+
+cleanup:
+  # The restart set this run exists to produce is the one the experiments name,
+  # so it is pinned rather than reaped. `keep_every` and not `keep_cycles`,
+  # because a record under `bkg/` is not a restart and a model cannot be started
+  # from one.
+  keep_cycles: 1
+  keep_every: PT24H
+
+model:
+  initial_condition: $(static_root)/ic/hat10/glorys-2021/20210401T12
