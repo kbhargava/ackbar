@@ -55,7 +55,13 @@ export SLURM_EXPORT_ENV=ALL
 _ssl=$(ls -d /apps/contrib/spack-stack/spack-stack-2.0.0/envs/ue-gcc-12.2.0/install/gcc/12.2.0/openssl-*/lib64 2>/dev/null | head -1)
 if [ -n "$_ssl" ]; then
   export LD_LIBRARY_PATH="${_ssl}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-  export LDFLAGS="-L${_ssl} -Wl,-rpath-link,${_ssl} ${LDFLAGS:-}"
+  # Guarded like LIBRARY_PATH below: LDFLAGS is not module-managed, so an
+  # unconditional prepend grows it by one `-L/-rpath-link` pair per sourcing
+  # across a resubmission chain.
+  case " ${LDFLAGS:-} " in
+    *" -L${_ssl} "*) ;;
+    *) export LDFLAGS="-L${_ssl} -Wl,-rpath-link,${_ssl} ${LDFLAGS:-}" ;;
+  esac
 fi
 unset _ssl
 
@@ -64,4 +70,16 @@ unset _ssl
 # `ld: cannot find -lopenblas`. Mirror it so gcc's link-time -l search finds the
 # spack libs. ecbuild passes -L explicitly and does not need this; MOM6's FMS
 # configure does. Kept last so it also picks up the openssl dir added above.
-export LIBRARY_PATH="${LD_LIBRARY_PATH}${LIBRARY_PATH:+:$LIBRARY_PATH}"
+#
+# Guarded against being there twice, the same way activate.sh guards
+# PYTHONPATH: this file is sourced once per submitted job and each cycle
+# resubmits the next from inside a running job with SLURM_EXPORT_ENV=ALL, so an
+# unconditional prepend carries the previous generation's whole LIBRARY_PATH
+# into the next and grows without bound. Measured: 216 cycles of hat10-spinup
+# would have pushed the job environment past execve's argument+environment
+# limit, which surfaced many cycles in as "Argument list too long" on the
+# venv's own python3.11, not as anything about LIBRARY_PATH itself.
+case ":${LIBRARY_PATH:-}:" in
+  *":${LD_LIBRARY_PATH}:"*) ;;
+  *) export LIBRARY_PATH="${LD_LIBRARY_PATH}${LIBRARY_PATH:+:$LIBRARY_PATH}" ;;
+esac
