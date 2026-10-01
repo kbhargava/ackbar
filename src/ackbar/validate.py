@@ -102,7 +102,7 @@ def validate_experiment(config, schema, site, root, offline=False):
     findings += _graph_step(config, graph)
     findings += _template_step(root)
 
-    jobtime_findings, paths, observations, (timed, shared) = _jobtime_step(
+    jobtime_findings, paths, observations, (timed, shared, path_cycles) = _jobtime_step(
         config, graph)
     findings += jobtime_findings
 
@@ -110,7 +110,7 @@ def validate_experiment(config, schema, site, root, offline=False):
         ran |= {3, 4, 5}
         findings += _path_step(paths, site)
         findings += _gridspec_step(config)
-        findings += _coverage_step(timed, config, graph, shared)
+        findings += _coverage_step(timed, config, graph, shared, path_cycles)
         findings += _observation_step(observations)
         findings += _observation_cycle_step(observations)
         findings += _observation_domain_step(config, observations)
@@ -214,6 +214,13 @@ def _jobtime_step(config, graph):
     observations = {}
     timed = set()
     shared = set()
+    # Which cycle(s) render to each per-member input path. A path used at
+    # every cycle (the ordinary case: one archive per member for the whole
+    # experiment) ends up mapped to every cycle, same as no restriction at
+    # all; a path that is itself templated per cycle (`{{current_cycle}}` in
+    # the layer) ends up mapped to just the one cycle that produced it, so
+    # `_coverage_step` can hold it to only the span it is actually read over.
+    path_cycles = {}
     for cycle, member in job_time_context(config, graph):
         try:
             rendered = render(config, symbols(config, cycle, member))
@@ -222,7 +229,10 @@ def _jobtime_step(config, graph):
                 2, error.path, f"cycle {cycle} member {member}: {error.message}"
             ))
             continue
-        timed.update(((rendered.get("ensemble") or {}).get("inputs") or {}).values())
+        inputs = ((rendered.get("ensemble") or {}).get("inputs") or {}).values()
+        timed.update(inputs)
+        for path in inputs:
+            path_cycles.setdefault(path, set()).add(cycle)
         shared.update(_shared_timed(rendered))
         for where, value in unresolved_jobtime(rendered):
             findings.append(Finding(
@@ -235,7 +245,7 @@ def _jobtime_step(config, graph):
 
     # One finding per distinct problem, not one per cycle: a bad symbol in a
     # shared config would otherwise be reported hundreds of times.
-    return _dedupe(findings), paths, observations, (timed | shared, shared)
+    return _dedupe(findings), paths, observations, (timed | shared, shared, path_cycles)
 
 
 #: Time-varying inputs the domain supplies to every member alike, as names under
@@ -490,7 +500,7 @@ def _path_step(paths, site):
     return findings
 
 
-def _needed_span(config, graph):
+def _needed_span(config, graph, cycles=None, anchor="window"):
     """The first and last instant this experiment's forcing has to cover.
 
     From `symbols`, rather than recomputed here, because the window's begin and
@@ -499,15 +509,36 @@ def _needed_span(config, graph):
     past the next one. `extended_cycles` says which cycles run long, so a
     cadenced long forecast does not make the whole experiment demand coverage
     it never reaches.
+
+    *cycles* restricts the span to a subset of the experiment's cycles, for an
+    input that is only ever read by some of them (a per-cycle-templated
+    `ensemble.inputs` entry, one distinct file per cycle, rather than one file
+    read at every cycle). Defaults to every cycle, the whole-experiment span
+    every other caller wants.
+
+    *anchor* picks which symbol opens the span. `"window"`, the default, is
+    `window_begin`: right for a shared boundary, which a 4D-window DA scheme's
+    outer-loop forecast can start reading up to half a window before the cycle
+    stamp. `"cycle"` is `current_cycle` instead, for a per-cycle `ensemble.inputs`
+    file: that file is staged into one cycle's own forecast task, which reads
+    its atmosphere (or its own boundary) starting at the cycle stamp regardless
+    of what any observation window does, `da/none` included. Confirmed against
+    a real cold start: a GEFS file starting exactly at the cycle stamp, twelve
+    hours after `window_begin`, integrates cleanly with nothing read from
+    earlier than that.
     """
-    cycles = sorted({cycle for cycle, _ in job_time_context(config, graph)})
+    if cycles is None:
+        cycles = sorted({cycle for cycle, _ in job_time_context(config, graph)})
+    else:
+        cycles = sorted(cycles)
     if not cycles:
         return None, None
     long_ones = set(extended_cycles(config, max(cycles)))
+    begin_key = "window_begin" if anchor == "window" else "current_cycle"
     begins, ends = [], []
     for cycle in cycles:
         table = symbols(config, cycle, 0)
-        begins.append(_fields(table["window_begin"]))
+        begins.append(_fields(table[begin_key]))
         ends.append(_fields(table["forecast_end"]))
         if cycle in long_ones:
             ends.append(_fields(
@@ -515,7 +546,7 @@ def _needed_span(config, graph):
     return min(begins), max(ends)
 
 
-def _coverage_step(timed, config, graph, shared=frozenset()):
+def _coverage_step(timed, config, graph, shared=frozenset(), path_cycles=None):
     """A time-varying input has to span the run, and this is the only chance.
 
     A member input that stops early is the one input failure healing cannot
@@ -539,10 +570,24 @@ def _coverage_step(timed, config, graph, shared=frozenset()):
     (`time_T2`, `time_DSWRF`, ...) and carries no variable named `time`, so a
     check keyed on that name would collect every `atm.nc`, find nothing, skip
     it, and report the experiment clean.
+
+    **A path templated per cycle only has to cover its own cycle.** `timed`
+    flattens every (cycle, member)'s resolved paths into one set with no memory
+    of which cycle produced which path, which is right for the ordinary case
+    (one archive per member, read at every cycle, so it must span all of them)
+    and wrong for a layer that puts `{{current_cycle}}` in the path itself:
+    HAT10's GEFS archive is one file per day, and comparing *that* file's
+    one-day span against the whole experiment's flags every cycle as short.
+    *path_cycles* maps each path to the cycle(s) that actually render to it, so
+    a path used at every cycle still needs the whole span (nothing changes for
+    the ordinary case) while a path used at one cycle only needs to cover that
+    one. `None` (every existing caller of this function directly) keeps the
+    old whole-experiment behavior for every path.
     """
     first, last = _needed_span(config, graph)
     if first is None:
         return []
+    path_cycles = path_cycles or {}
     findings = []
     short = {}
     for path in sorted(timed):
@@ -557,7 +602,12 @@ def _coverage_step(timed, config, graph, shared=frozenset()):
         if covered is None:
             continue
         start, end = covered
-        if start > first or end < last:
+        if path in shared or path not in path_cycles:
+            need_first, need_last = first, last
+        else:
+            need_first, need_last = _needed_span(
+                config, graph, path_cycles[path], anchor="cycle")
+        if start > need_first or end < need_last:
             short.setdefault(covered, []).append(path)
 
     # One finding per distinct span, not one per member. An ensemble is built in
